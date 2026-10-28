@@ -1,0 +1,25 @@
+# Human-in-the-loop gate. The agent may only write to the proposals table.
+# Amounts are in INR. Compensation rupees-per-day is UNVERIFIED — do not treat as legal advice.
+
+version: 1
+
+# Proposals at or below this amount may be offered for one-click approve.
+auto_propose_max_inr: 50000
+
+# Above this, the gate blocks posting and requires a supervisor path.
+escalate_above_inr: 500000
+
+# Allowed proposal kinds the agent may emit.
+allowed_actions:
+  - post_missing_credit
+  - reverse_failed_debit
+  - flag_duplicate
+  - notify_merchant_mismatch
+  - no_action_explain
+
+# RBI turnaround / compensation. Value is a placeholder until cited in docs/data-sources.md.
+compensation:
+  currency: INR
+  rupees_per_day: 100
+  rupees_per_day_status: unverified
+  failed_but_debited_deadline_hours: 24

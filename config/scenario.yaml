@@ -1,0 +1,39 @@
+# Synthetic day for one mid-size acquiring bank. Not real NPCI data.
+# Calibration facts (volumes, bank names) are cited in docs/data-sources.md.
+
+version: 1
+name: midsize-bank-day
+
+seed: 20261028
+iso_date: "2026-10-27"
+
+# Start small; raise rows_per_source after the pipeline is stable.
+rows_per_source: 1000000
+
+# Planted break mix. Remaining rows should match exactly across the three sources.
+breaks:
+  timing_skew: 0.012
+  duplicate_ledger: 0.004
+  amount_mismatch: 0.003
+  missing_settlement: 0.005
+  failed_but_debited: 0.006
+  reversal_not_posted: 0.002
+  many_to_one_batch: 0.008
+
+# Tolerances used by sql/11_match_tolerance.sql
+tolerance:
+  amount_inr: 1.00
+  time_seconds: 300
+
+acquiring_bank:
+  name: "CloseDesk Demo Bank"
+  ifsc_prefix: "CDBK"
+
+# Public calibration (hand-copied; update if you refresh the sources)
+calibration:
+  npci_upi_month: "September 2026"
+  npci_upi_volume_million: 24068.38
+  npci_upi_value_crore: 2937396.67
+  npci_upi_banks_live: 756
+  npci_upi_source: "https://www.npci.org.in/product/upi/product-statistics"
+  npci_upi_source_note: "Aggregate public statistics. Copied by hand. Not transaction-level."
