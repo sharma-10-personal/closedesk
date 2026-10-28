@@ -7,8 +7,8 @@ INSERT INTO matches (run_id, npci_ref, ledger_id, merchant_txn_id, stage, amount
 SELECT
     :run_id,
     n.npci_ref,
-    l.ledger_id,
-    m.merchant_txn_id,
+    MIN(l.ledger_id),
+    MIN(m.merchant_txn_id),
     'exact',
     n.amount_inr
 FROM npci_settlement n
@@ -19,4 +19,5 @@ JOIN bank_ledger l
 JOIN merchant_records m
   ON m.npci_ref = n.npci_ref
  AND m.amount_inr = n.amount_inr
- AND TO_DATE(m.txn_ts) = TO_DATE(n.txn_ts);
+ AND TO_DATE(m.txn_ts) = TO_DATE(n.txn_ts)
+GROUP BY n.npci_ref, n.amount_inr;

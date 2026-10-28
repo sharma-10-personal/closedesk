@@ -1,4 +1,4 @@
--- Collapse breaks into a few causes (gateway, merchant, break_type).
+-- Collapse breaks into a few causes (gateway, break_type).
 
 OPEN SCHEMA CLOSEDESK;
 
@@ -14,14 +14,16 @@ LEFT JOIN npci_settlement n ON n.npci_ref = b.npci_ref
 WHERE b.run_id = :run_id
 GROUP BY n.gateway_id, b.break_type;
 
-UPDATE breaks b
-SET root_cause_id = (
-    SELECT r.root_cause_id
-    FROM root_causes r
-    WHERE r.run_id = b.run_id
-      AND r.root_cause_id = HASHTYPE_MD5(
-            IFNULL((SELECT n.gateway_id FROM npci_settlement n WHERE n.npci_ref = b.npci_ref), 'none')
-            || '|' || b.break_type
-      )
-)
-WHERE b.run_id = :run_id;
+MERGE INTO breaks b
+USING (
+    SELECT
+        br.break_id,
+        HASHTYPE_MD5(
+            IFNULL(ns.gateway_id, 'none') || '|' || br.break_type
+        ) AS rc_id
+    FROM breaks br
+    LEFT JOIN npci_settlement ns ON ns.npci_ref = br.npci_ref
+    WHERE br.run_id = :run_id
+) src
+ON b.break_id = src.break_id AND b.run_id = :run_id
+WHEN MATCHED THEN UPDATE SET b.root_cause_id = src.rc_id;

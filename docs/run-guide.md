@@ -1,17 +1,16 @@
-# Run guide
+# Run Guide
 
-Tested target: Apple Silicon Mac, 16 GB RAM, Exasol Personal local VM.
+Tested: Apple Silicon Mac, 16 GB RAM, Exasol Personal local VM, Python 3.13.
 
 ## 1. Exasol Personal
 
-Needs about 8 GB RAM for the VM (this machine has 16 GB).
+Needs ~8 GB RAM for the VM.
 
 ```bash
 curl https://downloads.exasol.com/exasol-personal/installer.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 exasol install local --auto-approve --cpu-count 2 --memory-mb 8192 --data-size-gb 40
-exasol status
-# expect: database_ready
+exasol status        # expect: database_ready
 exasol connect -k -c "SELECT 1;"
 ```
 
@@ -21,43 +20,68 @@ Default SQL endpoint: `127.0.0.1:8563`, user `sys`. Password is in:
 
 Do not commit that file. Copy it into `.env` as `EXA_PASSWORD`.
 
-### AWS (optional)
-
-```bash
-exasol install aws
-```
-
-Requires your own AWS account. Not needed for judging if local works. Same SQL, same project commands after `EXA_DSN` points at the cloud endpoint.
-
 ## 2. This repository
 
-Python 3.11+ (3.13 is fine).
+Python 3.11+ (3.13 is fine). Uses [uv](https://docs.astral.sh/uv/) for package management.
 
 ```bash
-git clone git@github.com-sharma-10:sharma-10-personal/closedesk.git
+git clone https://github.com/sharma-10/closedesk.git
 cd closedesk
-cp .env.example .env
-# set EXA_PASSWORD from secrets.json
-make setup
-make schema
-make test
+cp .env.example .env   # set EXA_PASSWORD from secrets.json
+make setup             # installs uv + Python deps
 ```
 
-After the generator exists:
+## 3. Full pipeline
 
 ```bash
-make data
-make load
-make run
-make demo
+make full
 ```
 
-`make reset` drops generated `data/` and reapplies `sql/00_schema.sql`.
+This runs: `data` → `schema` → `load` → `run` → `propose` → `eval`
 
-## 3. What local Exasol cannot do (yet)
+Or run each step individually:
 
-Python UDFs need `exasol slc install PYTHON3`. CloseDesk does not need that. Matching is SQL.
+```bash
+make data       # Generate 1M synthetic transactions (~8 min)
+make schema     # Create/recreate Exasol schema
+make load       # Bulk load CSVs into Exasol (~14s)
+make run        # Run 9 SQL matching stages (~7s)
+make propose    # Generate governed proposals (~2s)
+make eval       # Score against answer key
+```
 
-## 4. LLM
+## 4. Dashboard
 
-Leave `LLM_PROVIDER=none`. The UI must still explain a break from SQL labels.
+```bash
+make demo       # Opens Streamlit at localhost:8501
+```
+
+The dashboard shows:
+- KPI header (match rate, ₹ at risk)
+- Pipeline stage timings
+- Break type distribution with chart
+- Exception queue sorted by ₹ at risk
+- Root cause groups
+- Agent proposals with approve/reject buttons
+- Full audit trail
+
+## 5. Tests & lint
+
+```bash
+make test       # pytest (10 tests)
+make lint       # ruff check
+```
+
+## 6. Reset
+
+```bash
+make reset      # Deletes data/ and recreates schema
+```
+
+## 7. What local Exasol cannot do (yet)
+
+Python UDFs need `exasol slc install PYTHON3`. CloseDesk does not need that — all matching is plain SQL.
+
+## 8. LLM
+
+Leave `LLM_PROVIDER=none`. The agent generates explanations from templates + SQL labels. No API key needed.

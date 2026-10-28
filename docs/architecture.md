@@ -1,41 +1,96 @@
 # Architecture
 
+## Data Flow
+
 ```
-synthetic generator
-        |
-        v
-  NPCI file | bank ledger | merchant records | answer key
-        |
-        v
-   pyexasol bulk load
-        |
-        v
- Exasol Personal (CLOSEDESK schema)
-   sql/10 exact
-   sql/11 tolerance
-   sql/12 many-to-one
-   sql/20 classify
-   sql/30 root causes
-   sql/40 priority
-   sql/50 proposals + audit
-        |
-        +--> read-only user --> explanation agent (templates, optional LLM)
-        |
-        v
- Streamlit: unmatched ₹, causes, queue, approve/reject
+┌─────────────────────────┐
+│  Synthetic Generator    │  1M rows × 3 sources + 7 break types
+│  closedesk/generator/   │  Deterministic (seed 20261028)
+└──────────┬──────────────┘
+           │  data/*.csv
+           ▼
+┌─────────────────────────┐
+│  Bulk Loader            │  pyexasol.import_from_iterable()
+│  closedesk/loader/      │  ~3s per million rows
+└──────────┬──────────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────────┐
+│  Exasol Personal (CLOSEDESK schema)                      │
+│                                                          │
+│  sql/10_match_exact.sql       → matches (exact)          │
+│  sql/11_match_tolerance.sql   → matches (tolerance)      │
+│  sql/12_match_many_to_one.sql → matches (many_to_one)    │
+│  sql/20_classify_breaks.sql   → breaks (classify)        │
+│  sql/21_detect_orphans.sql    → breaks (orphans)         │
+│  sql/22_detect_duplicates.sql → breaks (duplicates)      │
+│  sql/23_detect_status_mismatch.sql → breaks (status)     │
+│  sql/30_root_causes.sql       → root_causes              │
+│  sql/40_priority_and_deadlines.sql → breaks (ranked)     │
+│                                                          │
+│  All matching logic runs INSIDE Exasol. No Python UDFs.  │
+└──────────┬───────────────────────────┬───────────────────┘
+           │                           │
+           ▼                           ▼
+┌──────────────────────┐   ┌───────────────────────────┐
+│  Governed Agent      │   │  Eval Module              │
+│  closedesk/agent/    │   │  closedesk/eval/          │
+│                      │   │                           │
+│  • Reads breaks      │   │  • Compares to answer key │
+│  • Maps to actions   │   │  • Precision / Recall / F1│
+│  • Policy gate       │   │  • Per-break-type scores  │
+│  • Writes proposals  │   └───────────────────────────┘
+│  • Audit log         │
+└──────────┬───────────┘
+           │
+           ▼
+┌─────────────────────────────────────────────────┐
+│  Streamlit Dashboard (closedesk/app/ui.py)      │
+│                                                 │
+│  📊 KPI header (match rate, ₹ at risk)          │
+│  📊 Pipeline stage summary with timings         │
+│  🔍 Exception queue sorted by ₹ at risk        │
+│  🌳 Root cause groups (gateway × break type)    │
+│  📋 Proposals with approve/reject buttons       │
+│  📜 Full audit trail                            │
+└─────────────────────────────────────────────────┘
 ```
+
+## Schema (11 tables)
+
+| Table | Purpose |
+|-------|---------|
+| `npci_settlement` | NPCI settlement file (PK: npci_ref) |
+| `bank_ledger` | Core banking ledger (PK: ledger_id) |
+| `merchant_records` | Merchant payment records (PK: merchant_txn_id) |
+| `answer_key` | Planted truth for evaluation only |
+| `match_stage_log` | Timing and row counts per SQL stage |
+| `matches` | Successfully reconciled rows (PK: run_id, npci_ref, stage) |
+| `breaks` | Unreconciled rows with classification |
+| `root_causes` | Grouped by gateway × break_type |
+| `proposals` | Agent-proposed fixes (PENDING/APPROVED/REJECTED) |
+| `decisions` | Human approve/reject records |
+| `audit_log` | Complete action trail with before/after state |
+
+## Governance Model
+
+1. **Agent reads** breaks via query (ideally read-only user)
+2. **Agent proposes** an action for each break → writes to `proposals`
+3. **Policy gate** checks ₹ amount against thresholds:
+   - ≤ ₹50,000 → `allow` (one-click approve)
+   - ₹50,001 – ₹5,00,000 → `escalate` (supervisor required)
+   - > ₹5,00,000 → `block` (manual process only)
+4. **Human approves/rejects** in Streamlit UI
+5. **Decision + audit** recorded in `decisions` and `audit_log`
 
 ## What was verified on this Mac (28 Oct 2026)
 
 - Product: Exasol Personal **2026.2.0-nano.3**
 - Local VM, 2 vCPU, ~6.6 GB DB RAM, max 20 connections
-- `SELECT 1` and ordinary INSERT/SELECT: **work**
+- SQL: **works** — all 9 stages run in 6.65s on 1M rows
 - Lua scalar scripts: **work** without extra packages
 - Python3 UDFs: **do not work** until `exasol slc install PYTHON3`
-- `IMPORT ... FROM LOCAL CSV FILE` against the VM shared folder: **failed** in this probe (file/SSL). Load path is **pyexasol**, not server-side CSV import.
+- `IMPORT ... FROM LOCAL CSV FILE`: **failed** (SSL). Load path: **pyexasol bulk import**
+- `pyexasol.import_from_iterable()`: **3.5s per million rows**
 
-CloseDesk therefore keeps matching, classification, and grouping in **plain SQL**. No Python UDF is required.
-
-## Governance
-
-The agent uses a **read-only** database user. Writes go only to `proposals` and `audit_log`. `decisions` are written when a human clicks in the UI. Policy lives in `config/policy.yaml`.
+CloseDesk keeps all matching, classification, and grouping in **plain SQL**. No Python UDF is required.

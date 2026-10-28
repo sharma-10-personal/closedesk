@@ -2,30 +2,38 @@
 
 OPEN SCHEMA CLOSEDESK;
 
--- NPCI row with no exact/tolerance/many-to-one match.
+-- NPCI row with no match.
 INSERT INTO breaks (run_id, npci_ref, ledger_id, merchant_txn_id, break_type, amount_inr, rupees_at_risk, deadline_ts)
 SELECT
     :run_id,
-    n.npci_ref,
-    l.ledger_id,
-    m.merchant_txn_id,
+    q.npci_ref,
+    q.ledger_id,
+    q.merchant_txn_id,
     CASE
-        WHEN l.ledger_id IS NULL AND m.merchant_txn_id IS NULL THEN 'missing_bank_and_merchant'
-        WHEN l.ledger_id IS NULL THEN 'missing_ledger'
-        WHEN m.merchant_txn_id IS NULL THEN 'missing_merchant'
-        WHEN l.amount_inr <> n.amount_inr OR m.amount_inr <> n.amount_inr THEN 'amount_mismatch'
+        WHEN q.ledger_id IS NULL AND q.merchant_txn_id IS NULL THEN 'missing_bank_and_merchant'
+        WHEN q.ledger_id IS NULL THEN 'missing_ledger'
+        WHEN q.merchant_txn_id IS NULL THEN 'missing_merchant'
+        WHEN q.ledger_amount <> q.amount_inr OR q.merchant_amount <> q.amount_inr THEN 'amount_mismatch'
         ELSE 'unclassified'
     END,
-    n.amount_inr,
-    n.amount_inr,
+    q.amount_inr,
+    q.amount_inr,
     NULL
-FROM npci_settlement n
-LEFT JOIN bank_ledger l ON l.npci_ref = n.npci_ref
-LEFT JOIN merchant_records m ON m.npci_ref = n.npci_ref
-WHERE NOT EXISTS (
-    SELECT 1 FROM matches x
-    WHERE x.run_id = :run_id AND x.npci_ref = n.npci_ref
-);
+FROM (
+    SELECT
+        n.npci_ref,
+        MIN(l.ledger_id) AS ledger_id,
+        MIN(l.amount_inr) AS ledger_amount,
+        MIN(m.merchant_txn_id) AS merchant_txn_id,
+        MIN(m.amount_inr) AS merchant_amount,
+        n.amount_inr
+    FROM npci_settlement n
+    LEFT JOIN bank_ledger l ON l.npci_ref = n.npci_ref
+    LEFT JOIN merchant_records m ON m.npci_ref = n.npci_ref
+    LEFT JOIN matches x ON x.run_id = :run_id AND x.npci_ref = n.npci_ref
+    WHERE x.npci_ref IS NULL
+    GROUP BY n.npci_ref, n.amount_inr
+) q;
 
 -- Failed-but-debited: ledger debit with no NPCI success.
 INSERT INTO breaks (run_id, npci_ref, ledger_id, merchant_txn_id, break_type, amount_inr, rupees_at_risk, deadline_ts)

@@ -7,8 +7,8 @@ INSERT INTO matches (run_id, npci_ref, ledger_id, merchant_txn_id, stage, amount
 SELECT
     :run_id,
     n.npci_ref,
-    l.ledger_id,
-    m.merchant_txn_id,
+    MIN(l.ledger_id),
+    MIN(m.merchant_txn_id),
     'tolerance',
     n.amount_inr
 FROM npci_settlement n
@@ -22,5 +22,6 @@ JOIN merchant_records m
  AND ABS(SECONDS_BETWEEN(m.txn_ts, n.txn_ts)) <= :time_tol_seconds
 WHERE NOT EXISTS (
     SELECT 1 FROM matches x
-    WHERE x.run_id = :run_id AND x.npci_ref = n.npci_ref AND x.stage = 'exact'
-);
+    WHERE x.run_id = :run_id AND x.npci_ref = n.npci_ref
+)
+GROUP BY n.npci_ref, n.amount_inr;
