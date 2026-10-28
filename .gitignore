@@ -1,0 +1,37 @@
+# Secrets and local env
+.env
+.env.local
+*.pem
+*.key
+
+# Generated data (synthetic output is large; regenerate with `make data`)
+data/
+*.csv
+*.parquet
+!config/**
+!tests/fixtures/**
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Logs and local runtime
+logs/
+*.log
+.streamlit/secrets.toml
