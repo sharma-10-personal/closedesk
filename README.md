@@ -4,6 +4,8 @@ Governed UPI reconciliation on Exasol Personal.
 
 **ExaThon India 2026 · Money, Risk & Regulation**
 
+**Demo:** [Watch the 3-minute demo](https://drive.google.com/drive/folders/1N4V5nvlyClL3JZKy7FO-YJ1vm75NbuJg?usp=sharing)
+
 ## Submission
 
 | | |
