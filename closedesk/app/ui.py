@@ -1276,8 +1276,12 @@ def render_timeline(
 
 def decide(conn: pyexasol.ExaConnection, proposal_id: str, decision: str) -> None:
     pid = sql_text(proposal_id)
-    current = q_val(conn, f"SELECT status FROM proposals WHERE proposal_id = '{pid}'")
-    if current != "PENDING":
+    row = conn.execute(
+        f"SELECT status, gate_decision FROM proposals WHERE proposal_id = '{pid}'"
+    ).fetchone()
+    if row is None or row[0] != "PENDING":
+        return
+    if decision == "APPROVED" and row[1] == "block":
         return
     action = "APPROVE" if decision == "APPROVED" else "REJECT"
     did = f"D-{secrets.token_hex(4)}"
@@ -1526,7 +1530,9 @@ def screen_investigate(conn: pyexasol.ExaConnection) -> None:
                 )
                 if status == "PENDING":
                     a_col, r_col = st.columns(2)
-                    if a_col.button("Approve", key=widget_id("ok_inv", str(pid))):
+                    if a_col.button(
+                        "Approve", key=widget_id("ok_inv", str(pid)), disabled=_gate == "block"
+                    ):
                         decide(conn, str(pid), "APPROVED")
                         st.rerun()
                     if r_col.button("Reject", key=widget_id("no_inv", str(pid))):
@@ -1914,12 +1920,15 @@ def screen_inject(conn: pyexasol.ExaConnection) -> None:
             result = st.session_state.injection_result
             if result.get("proposal_id") and result.get("detected"):
                 pid = str(result["proposal_id"])
-                status = q_val(
-                    conn, f"SELECT status FROM proposals WHERE proposal_id = '{sql_text(pid)}'"
-                )
+                status, gate_name = conn.execute(
+                    "SELECT status, gate_decision FROM proposals "
+                    f"WHERE proposal_id = '{sql_text(pid)}'"
+                ).fetchone() or (None, None)
                 if status == "PENDING":
                     a_col, r_col = st.columns(2)
-                    if a_col.button("Approve", key=widget_id("ok_inj", pid)):
+                    if a_col.button(
+                        "Approve", key=widget_id("ok_inj", pid), disabled=gate_name == "block"
+                    ):
                         decide(conn, pid, "APPROVED")
                         st.rerun()
                     if r_col.button("Reject", key=widget_id("no_inj", pid)):
@@ -2059,7 +2068,13 @@ def screen_exceptions(conn: pyexasol.ExaConnection) -> None:
             unsafe_allow_html=True,
         )
         if status == "PENDING":
-            if c5.button("Approve", key=widget_id("ok", str(pid))):
+            if gate_name == "block":
+                c5.markdown(
+                    f'<div style="color:{ACCENT_RED};font-size:0.75rem;">Blocked by policy. '
+                    "Manual process only.</div>",
+                    unsafe_allow_html=True,
+                )
+            elif c5.button("Approve", key=widget_id("ok", str(pid))):
                 decide(conn, str(pid), "APPROVED")
                 st.rerun()
             if c5.button("Reject", key=widget_id("no", str(pid))):

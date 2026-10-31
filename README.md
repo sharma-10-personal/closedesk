@@ -4,7 +4,9 @@
 
 A payments-operations analyst at a mid-size bank can't close the day's UPI reconciliation, because the settlement file, the core-banking ledger and the merchant records disagree on thousands of transactions, and she traces each one by hand across spreadsheets. If this worked, she'd start the day with a short list of true exceptions, each with a cause, the rupees at risk and a proposed fix she can approve in one click.
 
-CloseDesk matches those three lists in **Exasol Personal**, groups leftovers by root cause, ranks them by rupees at risk, and lets an agent *propose* a fix. A human must approve every change. Nothing posts to the books without that click.
+CloseDesk matches those three lists in **Exasol Personal**, groups leftovers by root cause, ranks them by rupees at risk, and lets an agent *propose* a fix. A human must approve or reject every proposal, and every decision is written to an audit log in Exasol.
+
+You can also upload your own three CSV files on the Pipeline screen and run the same matching on them.
 
 > All payment rows in this project are **synthetic**. There is no real UPI, customer, or employer data. See [docs/data-sources.md](docs/data-sources.md).
 
@@ -31,7 +33,7 @@ Full details: [docs/results.md](docs/results.md)
 4. **Classify** — Identifies residual breaks: missing settlement, duplicate ledger, amount mismatch, failed-but-debited, reversal not posted, orphans.
 5. **Root causes** — Groups breaks by gateway × break type, ranks by ₹ at risk.
 6. **Agent** — Proposes a fix for each break. Policy gate allows, escalates, or blocks based on ₹ thresholds. Templates produce explanations (no LLM API key needed).
-7. **Approve** — Human reviews each proposal in the Streamlit dashboard. Approve or reject with one click.
+7. **Approve** — Human reviews each proposal in the Streamlit dashboard. Approve or reject with one click. The decision is recorded; CloseDesk does not post entries to a core-banking system.
 8. **Audit** — Every action is recorded in the audit log with before/after state.
 
 ## Quick start
@@ -46,7 +48,7 @@ exasol install local
 exasol connect   # confirm SELECT 1;
 
 # 2. This project
-git clone https://github.com/sharma-10/closedesk.git
+git clone https://github.com/sharma-10-personal/closedesk.git
 cd closedesk
 cp .env.example .env          # set EXA_PASSWORD from secrets.json
 make setup                    # installs uv + Python deps
@@ -82,7 +84,8 @@ closedesk/
 │   ├── 40_priority_and_deadlines.sql
 │   └── 50_governance.sql
 ├── config/          # policy.yaml + scenario.yaml
-├── tests/           # pytest suite (10 tests)
+├── samples/         # 10K-row CSVs for the upload screen
+├── tests/           # pytest suite (16 tests)
 ├── docs/            # Problem statement, architecture, results
 └── data/            # Generated CSVs (gitignored)
 ```
@@ -109,5 +112,5 @@ Core matching logic lives in `sql/` and runs **inside Exasol**. Python loads dat
 - Run / deploy: [docs/run-guide.md](docs/run-guide.md)
 - Data, APIs, tools: [docs/data-sources.md](docs/data-sources.md)
 - Measured results: [docs/results.md](docs/results.md)
-- Pitch deck: `docs/pitch/` (added before submission)
+- Pitch deck: [docs/pitch/closedesk-pitch.pdf](docs/pitch/closedesk-pitch.pdf)
 - Demo video (≤ 3 min): link will go here

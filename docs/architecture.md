@@ -47,14 +47,16 @@
 ┌─────────────────────────────────────────────────┐
 │  Streamlit Dashboard (closedesk/app/ui.py)      │
 │                                                 │
-│  📊 KPI header (match rate, ₹ at risk)          │
-│  📊 Pipeline stage summary with timings         │
-│  🔍 Exception queue sorted by ₹ at risk        │
-│  🌳 Root cause groups (gateway × break type)    │
-│  📋 Proposals with approve/reject buttons       │
-│  📜 Full audit trail                            │
+│  Pipeline     generate a day or upload 3 CSVs,  │
+│               stages run live in Exasol         │
+│  Investigate  one NPCI ref across all 3 sources │
+│  Inject       plant a break, watch it detected  │
+│  Exceptions   proposal queue, approve / reject  │
+│  Analytics    funnel, root causes, audit trail  │
 └─────────────────────────────────────────────────┘
 ```
+
+Uploaded CSVs are validated in Python (headers, column counts, amounts, duplicate IDs), saved to `data/upload/`, then loaded with the same bulk loader and matched by the same SQL stages.
 
 ## Schema (11 tables)
 

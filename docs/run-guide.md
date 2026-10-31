@@ -25,7 +25,7 @@ Do not commit that file. Copy it into `.env` as `EXA_PASSWORD`.
 Python 3.11+ (3.13 is fine). Uses [uv](https://docs.astral.sh/uv/) for package management.
 
 ```bash
-git clone https://github.com/sharma-10/closedesk.git
+git clone https://github.com/sharma-10-personal/closedesk.git
 cd closedesk
 cp .env.example .env   # set EXA_PASSWORD from secrets.json
 make setup             # installs uv + Python deps
@@ -56,19 +56,21 @@ make eval       # Score against answer key
 make demo       # Opens Streamlit at localhost:8501
 ```
 
-The dashboard shows:
-- KPI header (match rate, ₹ at risk)
-- Pipeline stage timings
-- Break type distribution with chart
-- Exception queue sorted by ₹ at risk
-- Root cause groups
-- Agent proposals with approve/reject buttons
-- Full audit trail
+The dashboard has five screens:
+- **Pipeline** — generate a synthetic day, or upload three CSVs (NPCI, ledger, merchant), and watch each SQL stage run live in Exasol
+- **Investigate** — look up one NPCI reference and see all three records, the match or break, and the agent's proposal
+- **Inject** — plant a new break into the live data and watch it get detected and proposed
+- **Exceptions** — the proposal queue sorted by ₹ at risk, with approve and reject
+- **Analytics** — funnel, break types, root causes, scoring against the answer key, and the audit trail
+
+### Uploading your own files
+
+Choose **Upload three files** on the Pipeline screen. Each CSV needs the header shown above its upload box; sample files are in `samples/` and downloadable from the screen. Files are checked for headers, column counts, numeric amounts and duplicate IDs before anything is loaded. Uploading replaces the day currently in Exasol, and accuracy scoring is skipped because uploads have no answer key.
 
 ## 5. Tests & lint
 
 ```bash
-make test       # pytest (10 tests)
+make test       # pytest (16 tests)
 make lint       # ruff check
 ```
 
