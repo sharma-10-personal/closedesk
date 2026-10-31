@@ -160,9 +160,7 @@ def run_engine(
     total_matched = conn.execute(
         f"SELECT COUNT(*) FROM matches WHERE run_id = '{run_id}'"
     ).fetchval()
-    total_breaks = conn.execute(
-        f"SELECT COUNT(*) FROM breaks WHERE run_id = '{run_id}'"
-    ).fetchval()
+    total_breaks = conn.execute(f"SELECT COUNT(*) FROM breaks WHERE run_id = '{run_id}'").fetchval()
     npci_total = conn.execute("SELECT COUNT(*) FROM npci_settlement").fetchval()
 
     auto_match_rate = (int(total_matched) / max(int(npci_total), 1)) * 100

@@ -18,48 +18,66 @@ from closedesk.agent.policy import gate, load_policy
 ACTION_MAP: dict[str, tuple[str, str]] = {
     "missing_ledger": (
         "post_missing_credit",
-        ("Bank ledger has no entry for NPCI ref {npci_ref}. "
-        "Recommend posting a credit of ₹{amount:.2f} to complete settlement."),
+        (
+            "Bank ledger has no entry for NPCI ref {npci_ref}. "
+            "Recommend posting a credit of ₹{amount:.2f} to complete settlement."
+        ),
     ),
     "missing_merchant": (
         "notify_merchant_mismatch",
-        ("Merchant system has no record for NPCI ref {npci_ref}. "
-        "Notify merchant gateway {gateway} to reconcile ₹{amount:.2f}."),
+        (
+            "Merchant system has no record for NPCI ref {npci_ref}. "
+            "Notify merchant gateway {gateway} to reconcile ₹{amount:.2f}."
+        ),
     ),
     "missing_bank_and_merchant": (
         "no_action_explain",
-        ("NPCI ref {npci_ref} has no bank or merchant record. "
-        "Likely a late-arriving settlement. Amount: ₹{amount:.2f}."),
+        (
+            "NPCI ref {npci_ref} has no bank or merchant record. "
+            "Likely a late-arriving settlement. Amount: ₹{amount:.2f}."
+        ),
     ),
     "amount_mismatch": (
         "notify_merchant_mismatch",
-        ("Amount differs across sources for NPCI ref {npci_ref}. "
-        "NPCI says ₹{amount:.2f}. Investigate merchant gateway {gateway}."),
+        (
+            "Amount differs across sources for NPCI ref {npci_ref}. "
+            "NPCI says ₹{amount:.2f}. Investigate merchant gateway {gateway}."
+        ),
     ),
     "failed_but_debited": (
         "reverse_failed_debit",
-        ("NPCI reports FAILED but bank debited ₹{amount:.2f} for ref {npci_ref}. "
-        "Customer refund required within 24h per RBI circular."),
+        (
+            "NPCI reports FAILED but bank debited ₹{amount:.2f} for ref {npci_ref}. "
+            "Customer refund required within 24h per RBI circular."
+        ),
     ),
     "duplicate_ledger": (
         "flag_duplicate",
-        ("Duplicate bank ledger entry detected for NPCI ref {npci_ref}. "
-        "Amount: ₹{amount:.2f}. Flag for reconciliation team."),
+        (
+            "Duplicate bank ledger entry detected for NPCI ref {npci_ref}. "
+            "Amount: ₹{amount:.2f}. Flag for reconciliation team."
+        ),
     ),
     "reversal_not_posted": (
         "post_missing_credit",
-        ("NPCI reversed ref {npci_ref} but bank still shows credit of ₹{amount:.2f}. "
-        "Post reversal entry to ledger."),
+        (
+            "NPCI reversed ref {npci_ref} but bank still shows credit of ₹{amount:.2f}. "
+            "Post reversal entry to ledger."
+        ),
     ),
     "missing_settlement": (
         "no_action_explain",
-        ("Bank/merchant have records for ref {npci_ref} but no NPCI settlement found. "
-        "Amount: ₹{amount:.2f}. May be a delayed settlement file."),
+        (
+            "Bank/merchant have records for ref {npci_ref} but no NPCI settlement found. "
+            "Amount: ₹{amount:.2f}. May be a delayed settlement file."
+        ),
     ),
     "unclassified": (
         "no_action_explain",
-        ("Unclassified break for NPCI ref {npci_ref}, ₹{amount:.2f}. "
-        "Manual investigation recommended."),
+        (
+            "Unclassified break for NPCI ref {npci_ref}, ₹{amount:.2f}. "
+            "Manual investigation recommended."
+        ),
     ),
 }
 
@@ -112,16 +130,31 @@ def propose_all(run_id: str, env_path: Path | None = None, policy_path: Path | N
         gate_decision = gate(action, float(amount_inr), policy)
         proposal_id = f"P-{secrets.token_hex(4)}"
 
-        proposal_rows.append((
-            proposal_id, run_id, str(break_id), action,
-            explanation[:4000], str(amount_inr),
-            gate_decision, "PENDING", now_str,
-        ))
+        proposal_rows.append(
+            (
+                proposal_id,
+                run_id,
+                str(break_id),
+                action,
+                explanation[:4000],
+                str(amount_inr),
+                gate_decision,
+                "PENDING",
+                now_str,
+            )
+        )
 
-        audit_rows.append((
-            now_str, "closedesk-agent", "PROPOSE", "proposal",
-            proposal_id, "", explanation[:4000],
-        ))
+        audit_rows.append(
+            (
+                now_str,
+                "closedesk-agent",
+                "PROPOSE",
+                "proposal",
+                proposal_id,
+                "",
+                explanation[:4000],
+            )
+        )
 
         stats["total"] += 1
         stats[gate_decision] += 1

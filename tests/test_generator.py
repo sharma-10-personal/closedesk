@@ -46,7 +46,12 @@ def test_generator_produces_four_files():
         generate(scenario_path=scenario_path, out_dir=out)
 
         # All 4 files exist and are non-empty
-        for name in ["npci_settlement.csv", "bank_ledger.csv", "merchant_records.csv", "answer_key.csv"]:
+        for name in [
+            "npci_settlement.csv",
+            "bank_ledger.csv",
+            "merchant_records.csv",
+            "answer_key.csv",
+        ]:
             p = out / name
             assert p.exists(), f"{name} missing"
             assert p.stat().st_size > 100, f"{name} too small"
@@ -58,8 +63,12 @@ def test_generator_produces_four_files():
 
         types_found = {r["break_type"] for r in ak_rows}
         expected_types = {
-            "timing_skew", "duplicate_ledger", "amount_mismatch",
-            "missing_settlement", "failed_but_debited", "reversal_not_posted",
+            "timing_skew",
+            "duplicate_ledger",
+            "amount_mismatch",
+            "missing_settlement",
+            "failed_but_debited",
+            "reversal_not_posted",
             "many_to_one_batch",
         }
         assert expected_types.issubset(types_found), f"Missing: {expected_types - types_found}"

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import html
+import io
 import os
 import re
 import secrets
@@ -22,7 +24,13 @@ from closedesk.agent.policy import gate, load_policy
 from closedesk.agent.propose import ACTION_MAP, propose_all
 from closedesk.engine.run import STAGES, _prepare_sql, _sanitise_run_id
 from closedesk.eval.score import score
-from closedesk.generator.build import GATEWAYS, generate
+from closedesk.generator.build import (
+    GATEWAYS,
+    LEDGER_HEADERS,
+    MERCHANT_HEADERS,
+    NPCI_HEADERS,
+    generate,
+)
 from closedesk.loader.load import load
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -93,6 +101,20 @@ ALL_STEPS: list[tuple[str, str | None, str | None]] = [
 ]
 ALL_STEPS.extend((name, fname, table) for fname, name, table in STAGES)
 ALL_STEPS.extend([("agent", None, None), ("eval", None, None)])
+UPLOAD_STEPS = [step for step in ALL_STEPS if step[0] not in ("generate", "eval")]
+UPLOAD_DIR = ROOT / "data" / "upload"
+SAMPLES_DIR = ROOT / "samples"
+UPLOAD_FILES = [
+    ("npci", "NPCI settlement", "npci_settlement.csv", NPCI_HEADERS),
+    ("ledger", "Bank ledger", "bank_ledger.csv", LEDGER_HEADERS),
+    ("merchant", "Merchant records", "merchant_records.csv", MERCHANT_HEADERS),
+]
+
+
+def current_steps() -> list[tuple[str, str | None, str | None]]:
+    if st.session_state.get("pipeline_mode") == "upload":
+        return UPLOAD_STEPS
+    return ALL_STEPS
 
 
 def fmt_inr(amount: float) -> str:
@@ -157,7 +179,7 @@ def pill(text: str, color: str) -> str:
     return (
         f'<span style="display:inline-block;padding:2px 6px;margin:2px 4px 2px 0;'
         f"font-family:{MONO};font-size:0.7rem;letter-spacing:0.04em;"
-        f"color:{color};background:{color}26;border:1px solid {color};\">"
+        f'color:{color};background:{color}26;border:1px solid {color};">'
         f"{esc(text)}</span>"
     )
 
@@ -287,6 +309,9 @@ def init_state() -> None:
         "inj_plan": None,
         "eval_result": None,
         "scale": "100K",
+        "pipeline_mode": "generate",
+        "source_tab": "generate",
+        "upload_error": None,
         "ex_offset": 0,
         "ex_sig": None,
     }
@@ -536,8 +561,13 @@ def start_pipeline() -> None:
     path = out / "ui_scenario.yaml"
     path.write_text(yaml.safe_dump(cfg))
     run_id = _sanitise_run_id(f"R-{cfg['iso_date']}-{secrets.token_hex(3)}")
-    st.session_state.run_id = run_id
+    begin_run(run_id, "generate")
     st.session_state.scenario_path = str(path)
+
+
+def begin_run(run_id: str, mode: str) -> None:
+    st.session_state.run_id = run_id
+    st.session_state.pipeline_mode = mode
     st.session_state.pipeline_running = True
     st.session_state.pipeline_index = 0
     st.session_state.pipeline_log = []
@@ -579,10 +609,7 @@ def stage_counts(
             f"WHERE run_id = '{rid}' AND stage = '{stage_name}'"
         )
     elif stage_name in BREAK_STAGES:
-        sql = (
-            f"SELECT COUNT(*), COALESCE(SUM(amount_inr), 0) FROM breaks "
-            f"WHERE run_id = '{rid}'"
-        )
+        sql = f"SELECT COUNT(*), COALESCE(SUM(amount_inr), 0) FROM breaks WHERE run_id = '{rid}'"
     elif stage_name == "root_causes":
         sql = (
             f"SELECT COUNT(*), COALESCE(SUM(rupees_at_risk), 0) FROM root_causes "
@@ -590,8 +617,7 @@ def stage_counts(
         )
     elif stage_name == "priority":
         sql = (
-            f"SELECT COUNT(*), COALESCE(SUM(rupees_at_risk), 0) FROM breaks "
-            f"WHERE run_id = '{rid}'"
+            f"SELECT COUNT(*), COALESCE(SUM(rupees_at_risk), 0) FROM breaks WHERE run_id = '{rid}'"
         )
     else:
         return 0, 0.0
@@ -628,7 +654,9 @@ def run_sql_stage(
     return count, rupees, elapsed
 
 
-def execute_step(conn: pyexasol.ExaConnection, name: str, sql_file: str | None, table: str | None) -> None:
+def execute_step(
+    conn: pyexasol.ExaConnection, name: str, sql_file: str | None, table: str | None
+) -> None:
     run_id = st.session_state.run_id
     t0 = time.perf_counter()
     if name == "generate":
@@ -642,15 +670,20 @@ def execute_step(conn: pyexasol.ExaConnection, name: str, sql_file: str | None, 
         append_log(name, 0, 0.0, time.perf_counter() - t0)
         return
     if name == "load":
-        load(data_dir=ROOT / "data", env_path=ROOT / ".env")
+        source = UPLOAD_DIR if st.session_state.pipeline_mode == "upload" else ROOT / "data"
+        load(data_dir=source, env_path=ROOT / ".env")
         get_connection.clear()
         fresh = get_connection()
         rows = int(q_val(fresh, "SELECT COUNT(*) FROM npci_settlement") or 0)
-        rupees = float(q_val(fresh, "SELECT COALESCE(SUM(amount_inr), 0) FROM npci_settlement") or 0)
+        rupees = float(
+            q_val(fresh, "SELECT COALESCE(SUM(amount_inr), 0) FROM npci_settlement") or 0
+        )
         append_log(name, rows, rupees, time.perf_counter() - t0)
         return
     if name == "agent":
-        stats = propose_all(run_id, env_path=ROOT / ".env", policy_path=ROOT / "config" / "policy.yaml")
+        stats = propose_all(
+            run_id, env_path=ROOT / ".env", policy_path=ROOT / "config" / "policy.yaml"
+        )
         append_log(name, int(stats["total"]), 0.0, time.perf_counter() - t0)
         return
     if name == "eval":
@@ -664,13 +697,14 @@ def execute_step(conn: pyexasol.ExaConnection, name: str, sql_file: str | None, 
 
 
 def advance_pipeline(conn: pyexasol.ExaConnection) -> None:
+    steps = current_steps()
     index = int(st.session_state.pipeline_index)
-    if index >= len(ALL_STEPS):
+    if index >= len(steps):
         st.session_state.pipeline_running = False
         st.session_state.pipeline_done = True
         st.rerun()
         return
-    name, sql_file, table = ALL_STEPS[index]
+    name, sql_file, table = steps[index]
     try:
         live = get_connection() if name != "schema" else conn
         execute_step(live, name, sql_file, table)
@@ -680,7 +714,7 @@ def advance_pipeline(conn: pyexasol.ExaConnection) -> None:
         st.rerun()
         return
     st.session_state.pipeline_index = index + 1
-    if st.session_state.pipeline_index >= len(ALL_STEPS):
+    if st.session_state.pipeline_index >= len(steps):
         st.session_state.pipeline_running = False
         st.session_state.pipeline_done = True
     st.rerun()
@@ -714,7 +748,7 @@ def hydrate_pipeline(conn: pyexasol.ExaConnection) -> None:
     st.session_state.pipeline_hydrated = True
     if st.session_state.pipeline_log:
         st.session_state.pipeline_done = True
-        st.session_state.pipeline_index = len(ALL_STEPS)
+        st.session_state.pipeline_index = len(current_steps())
 
 
 def render_meter(conn: pyexasol.ExaConnection) -> None:
@@ -754,7 +788,7 @@ def render_stage_table() -> None:
     running = bool(st.session_state.pipeline_running)
     index = int(st.session_state.pipeline_index)
     if running:
-        names = [step[0] for step in ALL_STEPS]
+        names = [step[0] for step in current_steps()]
     else:
         names = [entry["name"] for entry in st.session_state.pipeline_log]
     rows_html = []
@@ -763,15 +797,14 @@ def render_stage_table() -> None:
         if entry:
             if name in BREAK_STAGES and entry["rows"]:
                 status = (
-                    f'<span style="color:{ACCENT_RED};font-family:{MONO};">'
-                    f'{entry["rows"]:,}</span>'
+                    f'<span style="color:{ACCENT_RED};font-family:{MONO};">{entry["rows"]:,}</span>'
                 )
             else:
                 status = f'<span style="color:{ACCENT_GREEN};">✓</span>'
             color = TEXT_PRIMARY
-            row_txt = f'{entry["rows"]:,}'
+            row_txt = f"{entry['rows']:,}"
             rupee_txt = fmt_inr(entry["rupees"]) if entry["rupees"] else "—"
-            time_txt = f'{entry["seconds"]:.2f}s'
+            time_txt = f"{entry['seconds']:.2f}s"
         elif running and pos == index:
             status = '<span class="cd-running">RUNNING</span>'
             color = ACCENT_BLUE
@@ -783,7 +816,7 @@ def render_stage_table() -> None:
         rows_html.append(
             f'<tr style="color:{color};border-bottom:1px solid {BORDER};">'
             f'<td style="padding:0.45rem 0.3rem;">{esc(STAGE_LABELS.get(name, name))}</td>'
-            f'<td>{status}</td>'
+            f"<td>{status}</td>"
             f'<td style="text-align:right;font-family:{MONO};">{row_txt}</td>'
             f'<td style="text-align:right;font-family:{MONO};">{esc(rupee_txt)}</td>'
             f'<td style="text-align:right;font-family:{MONO};">{time_txt}</td></tr>'
@@ -824,8 +857,8 @@ def render_summary(conn: pyexasol.ExaConnection) -> None:
     wall = sum(float(entry["seconds"]) for entry in st.session_state.pipeline_log)
     boxes = [
         ("Match rate", f"{rate:.1f}%", rate_color),
-        ("Breaks", f'{int(stats["breaks"]):,}', ACCENT_RED),
-        ("Root causes", f'{int(stats["causes"]):,}', ACCENT_BLUE),
+        ("Breaks", f"{int(stats['breaks']):,}", ACCENT_RED),
+        ("Root causes", f"{int(stats['causes']):,}", ACCENT_BLUE),
         ("Wall time", f"{wall:.2f}s", TEXT_PRIMARY),
     ]
     cells = []
@@ -905,13 +938,146 @@ def render_config() -> None:
         st.rerun()
 
 
+def validate_csv(data: bytes, headers: list[str]) -> tuple[int, str | None]:
+    """Check a settlement CSV before it reaches Exasol. Returns (rows, error)."""
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return 0, "File is not UTF-8 text."
+    reader = csv.reader(io.StringIO(text))
+    found = [col.strip().lower() for col in next(reader, [])]
+    if found != headers:
+        return 0, "Header must be: " + ",".join(headers)
+    amount_col = headers.index("amount_inr")
+    seen: set[str] = set()
+    rows = 0
+    for line_no, row in enumerate(reader, start=2):
+        if not row:
+            continue
+        if len(row) != len(headers):
+            return rows, f"Line {line_no}: expected {len(headers)} columns, found {len(row)}."
+        try:
+            float(row[amount_col])
+        except ValueError:
+            return rows, f"Line {line_no}: amount_inr '{row[amount_col]}' is not a number."
+        key = row[0].strip()
+        if not key:
+            return rows, f"Line {line_no}: {headers[0]} is empty."
+        if key in seen:
+            return rows, f"Line {line_no}: duplicate {headers[0]} '{key}'."
+        seen.add(key)
+        rows += 1
+    if rows == 0:
+        return 0, "File has a header but no rows."
+    return rows, None
+
+
+def upload_check(key: str, uploaded: object, headers: list[str]) -> tuple[int, str | None]:
+    checks: dict = st.session_state.setdefault("upload_checks", {})
+    file_id = getattr(uploaded, "file_id", None) or getattr(uploaded, "name", "")
+    cached = checks.get(key)
+    if cached and cached[0] == file_id:
+        return cached[1], cached[2]
+    rows, error = validate_csv(uploaded.getvalue(), headers)  # type: ignore[attr-defined]
+    checks[key] = (file_id, rows, error)
+    return rows, error
+
+
+def start_upload_run(files: dict[str, object]) -> None:
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    for stale in UPLOAD_DIR.glob("*.csv"):
+        stale.unlink()
+    for key, _title, filename, _headers in UPLOAD_FILES:
+        (UPLOAD_DIR / filename).write_bytes(files[key].getvalue())  # type: ignore[attr-defined]
+    begin_run(_sanitise_run_id(f"R-UPLOAD-{secrets.token_hex(3)}"), "upload")
+    st.session_state.scenario_path = ""
+
+
+def render_upload() -> None:
+    heading("Upload settlement files")
+    st.markdown(
+        f'<div style="color:{TEXT_SECONDARY};margin-bottom:0.8rem;">'
+        "Drop the day's three files. Each is checked before it is loaded into Exasol, "
+        "then the same matching pipeline runs on it. Uploaded files have no answer key, "
+        "so accuracy scoring is not available for this run.</div>",
+        unsafe_allow_html=True,
+    )
+    files: dict[str, object] = {}
+    ready = True
+    cols = st.columns(3)
+    for col, (key, title, filename, headers) in zip(cols, UPLOAD_FILES, strict=True):
+        with col:
+            st.markdown(label(title), unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="font-family:{MONO};font-size:0.7rem;color:{TEXT_MUTED};'
+                f'word-break:break-all;margin-bottom:0.4rem;">{esc(",".join(headers))}</div>',
+                unsafe_allow_html=True,
+            )
+            uploaded = st.file_uploader(
+                title, type=["csv"], key=f"up_{key}", label_visibility="collapsed"
+            )
+            sample = SAMPLES_DIR / filename
+            if sample.exists():
+                st.download_button(
+                    f"Sample {filename}",
+                    sample.read_bytes(),
+                    file_name=filename,
+                    mime="text/csv",
+                    key=f"sample_{key}",
+                    width="stretch",
+                )
+            if uploaded is None:
+                ready = False
+                continue
+            rows, error = upload_check(key, uploaded, headers)
+            if error:
+                ready = False
+                st.markdown(
+                    f'<div style="color:{ACCENT_RED};font-size:0.8125rem;">{esc(error)}</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                files[key] = uploaded
+                st.markdown(
+                    f'<div style="color:{ACCENT_GREEN};font-family:{MONO};font-size:0.8125rem;">'
+                    f"✓ {rows:,} rows</div>",
+                    unsafe_allow_html=True,
+                )
+    st.markdown(
+        f'<div style="color:{TEXT_MUTED};font-size:0.8125rem;margin:0.5rem 0;">'
+        "Replaces the settlement day currently loaded in Exasol.</div>",
+        unsafe_allow_html=True,
+    )
+    if st.button(
+        "LOAD & RECONCILE",
+        key="generate_btn",
+        type="primary",
+        width="stretch",
+        disabled=not ready,
+    ):
+        start_upload_run(files)
+        st.rerun()
+
+
+def render_source_switch() -> None:
+    left, right = st.columns(2)
+    for col, key, text in (
+        (left, "generate", "Generate a synthetic day"),
+        (right, "upload", "Upload three files"),
+    ):
+        kind = "primary" if st.session_state.source_tab == key else "secondary"
+        if col.button(text, key=f"src_{key}", type=kind, width="stretch"):
+            st.session_state.source_tab = key
+            st.rerun()
+
+
 def screen_pipeline(conn: pyexasol.ExaConnection) -> None:
     hydrate_pipeline(conn)
     if st.session_state.pipeline_error:
         st.markdown(
             f'<div style="color:{ACCENT_RED};font-family:{MONO};font-size:0.8125rem;'
             f'white-space:pre-wrap;margin-bottom:0.75rem;">'
-            f'{esc(st.session_state.pipeline_error)}</div>',
+            f"{esc(st.session_state.pipeline_error)}</div>",
             unsafe_allow_html=True,
         )
     show_run = bool(st.session_state.pipeline_running or st.session_state.pipeline_log)
@@ -926,7 +1092,11 @@ def screen_pipeline(conn: pyexasol.ExaConnection) -> None:
                 f'<div style="margin-top:1.5rem;">{label("New run")}</div>',
                 unsafe_allow_html=True,
             )
-        render_config()
+        render_source_switch()
+        if st.session_state.source_tab == "upload":
+            render_upload()
+        else:
+            render_config()
     else:
         advance_pipeline(conn)
 
@@ -959,9 +1129,17 @@ def field_state(name: str, states: dict[str, str]) -> str:
 
 
 def render_records(
-    title: str, color: str, records: list[dict[str, object]], fields: list[tuple[str, str]], states: dict[str, str], duplicate_badge: bool
+    title: str,
+    color: str,
+    records: list[dict[str, object]],
+    fields: list[tuple[str, str]],
+    states: dict[str, str],
+    duplicate_badge: bool,
 ) -> None:
-    body = [label(title), f'<div style="height:3px;background:{color};margin:0.3rem 0 0.6rem;"></div>']
+    body = [
+        label(title),
+        f'<div style="height:3px;background:{color};margin:0.3rem 0 0.6rem;"></div>',
+    ]
     if not records:
         body.append(
             f'<div style="color:{ACCENT_RED};text-align:center;padding:1.5rem 0;font-weight:600;">NO RECORD</div>'
@@ -990,7 +1168,7 @@ def render_records(
             )
     st.markdown(
         f'<div style="background:{SURFACE};border:1px solid {BORDER};padding:0.75rem 0.9rem;height:100%;">'
-        f'{"".join(body)}</div>',
+        f"{''.join(body)}</div>",
         unsafe_allow_html=True,
     )
 
@@ -1166,15 +1344,34 @@ def screen_investigate(conn: pyexasol.ExaConnection) -> None:
         )
         return
     npci_cols = [
-        "npci_ref", "txn_ts", "amount_inr", "status", "payer_psp", "payee_psp",
-        "merchant_id", "mcc", "gateway_id",
+        "npci_ref",
+        "txn_ts",
+        "amount_inr",
+        "status",
+        "payer_psp",
+        "payee_psp",
+        "merchant_id",
+        "mcc",
+        "gateway_id",
     ]
     ledger_cols = [
-        "ledger_id", "npci_ref", "txn_ts", "amount_inr", "direction", "account_id",
-        "status", "posting_ts",
+        "ledger_id",
+        "npci_ref",
+        "txn_ts",
+        "amount_inr",
+        "direction",
+        "account_id",
+        "status",
+        "posting_ts",
     ]
     merchant_cols = [
-        "merchant_txn_id", "npci_ref", "txn_ts", "amount_inr", "merchant_id", "gateway_id", "status",
+        "merchant_txn_id",
+        "npci_ref",
+        "txn_ts",
+        "amount_inr",
+        "merchant_id",
+        "gateway_id",
+        "status",
     ]
     try:
         npci = fetch_dicts(
@@ -1217,9 +1414,15 @@ def screen_investigate(conn: pyexasol.ExaConnection) -> None:
             ACCENT_BLUE,
             npci,
             [
-                ("npci_ref", "NPCI ref"), ("txn_ts", "Timestamp"), ("amount_inr", "Amount"),
-                ("status", "Status"), ("payer_psp", "Payer PSP"), ("payee_psp", "Payee PSP"),
-                ("merchant_id", "Merchant ID"), ("mcc", "MCC"), ("gateway_id", "Gateway"),
+                ("npci_ref", "NPCI ref"),
+                ("txn_ts", "Timestamp"),
+                ("amount_inr", "Amount"),
+                ("status", "Status"),
+                ("payer_psp", "Payer PSP"),
+                ("payee_psp", "Payee PSP"),
+                ("merchant_id", "Merchant ID"),
+                ("mcc", "MCC"),
+                ("gateway_id", "Gateway"),
             ],
             states,
             False,
@@ -1230,9 +1433,14 @@ def screen_investigate(conn: pyexasol.ExaConnection) -> None:
             ACCENT_GREEN,
             ledger,
             [
-                ("ledger_id", "Ledger ID"), ("npci_ref", "NPCI ref"), ("txn_ts", "Timestamp"),
-                ("amount_inr", "Amount"), ("direction", "Direction"), ("account_id", "Account"),
-                ("status", "Status"), ("posting_ts", "Posting time"),
+                ("ledger_id", "Ledger ID"),
+                ("npci_ref", "NPCI ref"),
+                ("txn_ts", "Timestamp"),
+                ("amount_inr", "Amount"),
+                ("direction", "Direction"),
+                ("account_id", "Account"),
+                ("status", "Status"),
+                ("posting_ts", "Posting time"),
             ],
             states,
             True,
@@ -1243,9 +1451,13 @@ def screen_investigate(conn: pyexasol.ExaConnection) -> None:
             ACCENT_AMBER,
             merchant,
             [
-                ("merchant_txn_id", "Merchant txn"), ("npci_ref", "NPCI ref"),
-                ("txn_ts", "Timestamp"), ("amount_inr", "Amount"), ("merchant_id", "Merchant ID"),
-                ("gateway_id", "Gateway"), ("status", "Status"),
+                ("merchant_txn_id", "Merchant txn"),
+                ("npci_ref", "NPCI ref"),
+                ("txn_ts", "Timestamp"),
+                ("amount_inr", "Amount"),
+                ("merchant_id", "Merchant ID"),
+                ("gateway_id", "Gateway"),
+                ("status", "Status"),
             ],
             states,
             False,
@@ -1306,7 +1518,7 @@ def screen_investigate(conn: pyexasol.ExaConnection) -> None:
                 pid, action, explanation, _gate, status = proposals[0]
                 st.markdown(
                     f'<div style="margin:0.4rem 0;color:{TEXT_PRIMARY};">{esc(action)} '
-                    f'{gate_icon} {esc(str(_gate))}</div>'
+                    f"{gate_icon} {esc(str(_gate))}</div>"
                     f'<div style="color:{TEXT_SECONDARY};font-size:0.8125rem;">{esc(explanation)}</div>'
                     f'<div style="color:{TEXT_MUTED};font-size:0.75rem;margin-top:0.25rem;">'
                     f"STATUS {esc(status)}</div>",
@@ -1350,8 +1562,15 @@ def make_plan(break_type: str, amount: float, gateway: str) -> dict[str, object]
             (
                 "npci_settlement",
                 [
-                    "npci_ref", "txn_ts", "amount_inr", "status", "payer_psp", "payee_psp",
-                    "merchant_id", "mcc", "gateway_id",
+                    "npci_ref",
+                    "txn_ts",
+                    "amount_inr",
+                    "status",
+                    "payer_psp",
+                    "payee_psp",
+                    "merchant_id",
+                    "mcc",
+                    "gateway_id",
                 ],
                 [ref, txn_ts, amount, npci_status, "SBI", "HDFC", merchant_id, "5411", gateway],
             )
@@ -1360,8 +1579,14 @@ def make_plan(break_type: str, amount: float, gateway: str) -> dict[str, object]
         (
             "bank_ledger",
             [
-                "ledger_id", "npci_ref", "txn_ts", "amount_inr", "direction", "account_id",
-                "status", "posting_ts",
+                "ledger_id",
+                "npci_ref",
+                "txn_ts",
+                "amount_inr",
+                "direction",
+                "account_id",
+                "status",
+                "posting_ts",
             ],
             [ledger_id, ref, txn_ts, amount, direction, account, ledger_status, post_ts],
         )
@@ -1371,8 +1596,14 @@ def make_plan(break_type: str, amount: float, gateway: str) -> dict[str, object]
             (
                 "bank_ledger",
                 [
-                    "ledger_id", "npci_ref", "txn_ts", "amount_inr", "direction", "account_id",
-                    "status", "posting_ts",
+                    "ledger_id",
+                    "npci_ref",
+                    "txn_ts",
+                    "amount_inr",
+                    "direction",
+                    "account_id",
+                    "status",
+                    "posting_ts",
                 ],
                 [ledger_dup, ref, txn_ts, amount, direction, account, ledger_status, post_ts],
             )
@@ -1382,8 +1613,13 @@ def make_plan(break_type: str, amount: float, gateway: str) -> dict[str, object]
             (
                 "merchant_records",
                 [
-                    "merchant_txn_id", "npci_ref", "txn_ts", "amount_inr", "merchant_id",
-                    "gateway_id", "status",
+                    "merchant_txn_id",
+                    "npci_ref",
+                    "txn_ts",
+                    "amount_inr",
+                    "merchant_id",
+                    "gateway_id",
+                    "status",
                 ],
                 [merchant_txn, ref, txn_ts, merchant_amount, merchant_id, gateway, "SUCCESS"],
             )
@@ -1505,7 +1741,9 @@ def detect_break(conn: pyexasol.ExaConnection, run_id: str, plan: dict[str, obje
     return int(bid) if bid is not None else None
 
 
-def propose_one(conn: pyexasol.ExaConnection, run_id: str, break_id: int, plan: dict[str, object]) -> str:
+def propose_one(
+    conn: pyexasol.ExaConnection, run_id: str, break_id: int, plan: dict[str, object]
+) -> str:
     break_type = str(plan["break_type"])
     action, template = ACTION_MAP[break_type]
     explanation = template.format(
@@ -1557,13 +1795,13 @@ def render_injection_result(result: dict[str, object]) -> str:
     steps.append(f'<div style="color:{ACCENT_GREEN};">✓ Inserted</div>')
     steps.append(
         f'<div style="font-family:{MONO};color:{TEXT_SECONDARY};font-size:0.8125rem;">'
-        f'{esc(result.get("ref"))}</div>'
+        f"{esc(result.get('ref'))}</div>"
     )
     if result.get("detected"):
         steps.append(f'<div style="color:{ACCENT_GREEN};margin-top:0.6rem;">✓ Detected</div>')
         steps.append(
             f'<div style="font-family:{MONO};color:{TEXT_PRIMARY};">'
-            f'{esc(result.get("break_type"))} · {esc(fmt_inr(float(result["amount"])))}</div>'
+            f"{esc(result.get('break_type'))} · {esc(fmt_inr(float(result['amount'])))}</div>"
         )
     else:
         steps.append(f'<div style="color:{ACCENT_RED};margin-top:0.6rem;">✗ Missed</div>')
@@ -1575,9 +1813,7 @@ def render_injection_result(result: dict[str, object]) -> str:
             f'<div style="color:{TEXT_PRIMARY};">{esc(result.get("action"))} {icon} {esc(gate_name)}</div>'
             f'<div style="color:{TEXT_SECONDARY};font-size:0.8125rem;">{esc(result.get("explanation"))}</div>'
         )
-    return (
-        f'<div style="background:{SURFACE};border:1px solid {BORDER};padding:1rem;">{"".join(steps)}</div>'
-    )
+    return f'<div style="background:{SURFACE};border:1px solid {BORDER};padding:1rem;">{"".join(steps)}</div>'
 
 
 def run_injection(conn: pyexasol.ExaConnection, plan: dict[str, object], box: object) -> None:
@@ -1651,7 +1887,8 @@ def screen_inject(conn: pyexasol.ExaConnection) -> None:
             gateways = [
                 str(row[0])
                 for row in q_all(
-                    conn, "SELECT DISTINCT gateway_id FROM npci_settlement WHERE gateway_id IS NOT NULL LIMIT 10"
+                    conn,
+                    "SELECT DISTINCT gateway_id FROM npci_settlement WHERE gateway_id IS NOT NULL LIMIT 10",
                 )
             ]
         except pyexasol.ExaQueryError:
@@ -1671,11 +1908,15 @@ def screen_inject(conn: pyexasol.ExaConnection) -> None:
             except pyexasol.ExaError as exc:
                 show_query_error(exc)
         elif st.session_state.injection_result:
-            box.markdown(render_injection_result(st.session_state.injection_result), unsafe_allow_html=True)
+            box.markdown(
+                render_injection_result(st.session_state.injection_result), unsafe_allow_html=True
+            )
             result = st.session_state.injection_result
             if result.get("proposal_id") and result.get("detected"):
                 pid = str(result["proposal_id"])
-                status = q_val(conn, f"SELECT status FROM proposals WHERE proposal_id = '{sql_text(pid)}'")
+                status = q_val(
+                    conn, f"SELECT status FROM proposals WHERE proposal_id = '{sql_text(pid)}'"
+                )
                 if status == "PENDING":
                     a_col, r_col = st.columns(2)
                     if a_col.button("Approve", key=widget_id("ok_inj", pid)):
@@ -1853,7 +2094,9 @@ def funnel_html(npci: int, matched: int, breaks: int, causes: int) -> str:
     parts = []
     for index, (count, caption, color) in enumerate(blocks):
         if index:
-            parts.append(f'<div style="color:{BORDER_FOCUS};font-size:1.5rem;padding:0 0.3rem;">→</div>')
+            parts.append(
+                f'<div style="color:{BORDER_FOCUS};font-size:1.5rem;padding:0 0.3rem;">→</div>'
+            )
         parts.append(
             f'<div style="flex:1;background:{color};padding:0.9rem 0.4rem;text-align:center;">'
             f'<div style="font-family:{MONO};font-size:1.35rem;font-weight:600;color:#ffffff;">{count}</div>'
@@ -1866,7 +2109,7 @@ def funnel_html(npci: int, matched: int, breaks: int, causes: int) -> str:
 def html_table(headers: list[str], records: list[list[str]], numeric_cols: set[int]) -> str:
     head = "".join(
         f'<th style="text-align:{"right" if i in numeric_cols else "left"};padding:0.45rem;'
-        f'font-size:0.75rem;letter-spacing:0.05em;text-transform:uppercase;color:{TEXT_SECONDARY};'
+        f"font-size:0.75rem;letter-spacing:0.05em;text-transform:uppercase;color:{TEXT_SECONDARY};"
         f'font-weight:500;border-bottom:1px solid {BORDER};">{esc(h)}</th>'
         for i, h in enumerate(headers)
     )
@@ -1888,7 +2131,9 @@ def html_table(headers: list[str], records: list[list[str]], numeric_cols: set[i
 
 
 def dark_bar(frame: pd.DataFrame, y_name: str, x_name: str, color: str | None) -> alt.Chart:
-    y_enc = alt.Y(f"{y_name}:N", sort="-x", axis=alt.Axis(labelColor=TEXT_PRIMARY, title=None, grid=False))
+    y_enc = alt.Y(
+        f"{y_name}:N", sort="-x", axis=alt.Axis(labelColor=TEXT_PRIMARY, title=None, grid=False)
+    )
     x_enc = alt.X(
         f"{x_name}:Q",
         axis=alt.Axis(labelColor=TEXT_PRIMARY, title=None, gridColor=BORDER),
@@ -1935,7 +2180,12 @@ def screen_analytics(conn: pyexasol.ExaConnection) -> None:
             show_query_error(exc)
             return
         st.markdown(
-            funnel_html(int(stats["npci"]), int(stats["matched"]), int(stats["breaks"]), int(stats["causes"])),
+            funnel_html(
+                int(stats["npci"]),
+                int(stats["matched"]),
+                int(stats["breaks"]),
+                int(stats["causes"]),
+            ),
             unsafe_allow_html=True,
         )
         left, right = st.columns(2)
@@ -1948,26 +2198,30 @@ def screen_analytics(conn: pyexasol.ExaConnection) -> None:
                 )
                 st.altair_chart(dark_bar(frame, "break_type", "cnt", "palette"), width="stretch")
             else:
-                st.markdown(f'<div style="color:{TEXT_MUTED};">No breaks in this run.</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="color:{TEXT_MUTED};">No breaks in this run.</div>',
+                    unsafe_allow_html=True,
+                )
         with right:
             st.markdown(label("Stage performance"), unsafe_allow_html=True)
             if stage_rows:
                 frame = pd.DataFrame(
-                    [(STAGE_LABELS.get(str(row[0]), str(row[0])), float(row[1])) for row in stage_rows],
+                    [
+                        (STAGE_LABELS.get(str(row[0]), str(row[0])), float(row[1]))
+                        for row in stage_rows
+                    ],
                     columns=["stage", "elapsed_ms"],
                 )
                 st.altair_chart(dark_bar(frame, "stage", "elapsed_ms", None), width="stretch")
         st.markdown(label("Root causes"), unsafe_allow_html=True)
         if causes:
-            records = [
-                [str(row[0]), f"{int(row[1]):,}", fmt_inr(float(row[2]))]
-                for row in causes
-            ]
+            records = [[str(row[0]), f"{int(row[1]):,}", fmt_inr(float(row[2]))] for row in causes]
             st.markdown(
                 html_table(["Title", "Break count", "₹ at risk"], records, {1, 2}),
                 unsafe_allow_html=True,
             )
-        if st.button("Score against answer key", key="score_run"):
+        has_key = int(q_val(conn, "SELECT COUNT(*) FROM answer_key") or 0) > 0
+        if has_key and st.button("Score against answer key", key="score_run"):
             st.session_state.eval_result = score(run_id, env_path=ROOT / ".env")
         result = st.session_state.eval_result
         if result and result.get("run_id") == run_id:
@@ -1990,7 +2244,9 @@ def screen_analytics(conn: pyexasol.ExaConnection) -> None:
             type_rows = []
             for name, item in sorted(result["by_type"].items()):
                 rate = item["tp"] / item["total"] if item["total"] else 0
-                type_rows.append([name, f'{item["tp"]:,}', f'{item["total"]:,}', f"{rate * 100:.0f}%"])
+                type_rows.append(
+                    [name, f"{item['tp']:,}", f"{item['total']:,}", f"{rate * 100:.0f}%"]
+                )
             st.markdown(
                 html_table(["Break type", "Detected", "Planted", "Rate"], type_rows, {1, 2, 3}),
                 unsafe_allow_html=True,
@@ -2032,8 +2288,8 @@ def screen_analytics(conn: pyexasol.ExaConnection) -> None:
                 f'<div title="{title}" style="display:flex;gap:0.6rem;align-items:baseline;'
                 f'border-bottom:1px solid {BORDER};padding:0.35rem 0;font-size:0.8125rem;">'
                 f'<span style="font-family:{MONO};color:{TEXT_MUTED};min-width:11rem;">{esc(at_ts)}</span>'
-                f'{pill("agent" if who == "closedesk-agent" else str(who), actor_color.get(str(who), TEXT_SECONDARY))}'
-                f'{pill(str(act), action_color.get(str(act), TEXT_SECONDARY))}'
+                f"{pill('agent' if who == 'closedesk-agent' else str(who), actor_color.get(str(who), TEXT_SECONDARY))}"
+                f"{pill(str(act), action_color.get(str(act), TEXT_SECONDARY))}"
                 f'<span style="font-family:{MONO};color:{TEXT_PRIMARY};">{esc(entity)} {esc(entity_id)}</span>'
                 f'<span style="color:{TEXT_SECONDARY};">{esc(change)}</span></div>',
                 unsafe_allow_html=True,

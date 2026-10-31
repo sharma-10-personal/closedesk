@@ -10,6 +10,7 @@ data/
 *.parquet
 !config/**
 !tests/fixtures/**
+!samples/*.csv
 
 # Python
 .venv/

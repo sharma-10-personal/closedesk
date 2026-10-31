@@ -6,9 +6,15 @@ from closedesk.agent.propose import ACTION_MAP
 
 def test_all_break_types_have_actions():
     expected = {
-        "missing_ledger", "missing_merchant", "missing_bank_and_merchant",
-        "amount_mismatch", "failed_but_debited", "duplicate_ledger",
-        "reversal_not_posted", "missing_settlement", "unclassified",
+        "missing_ledger",
+        "missing_merchant",
+        "missing_bank_and_merchant",
+        "amount_mismatch",
+        "failed_but_debited",
+        "duplicate_ledger",
+        "reversal_not_posted",
+        "missing_settlement",
+        "unclassified",
     }
     assert expected <= set(ACTION_MAP.keys())
 
@@ -18,8 +24,11 @@ def test_action_map_values_are_allowed():
         auto_propose_max_inr=50000,
         escalate_above_inr=500000,
         allowed_actions=(
-            "post_missing_credit", "reverse_failed_debit",
-            "flag_duplicate", "notify_merchant_mismatch", "no_action_explain",
+            "post_missing_credit",
+            "reverse_failed_debit",
+            "flag_duplicate",
+            "notify_merchant_mismatch",
+            "no_action_explain",
         ),
     )
     for break_type, (action, _) in ACTION_MAP.items():

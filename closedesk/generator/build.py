@@ -18,16 +18,34 @@ MCCS = ["5411", "5541", "5812", "5999", "4121", "5691", "7011", "5311"]
 GATEWAYS = ["GW01", "GW02", "GW03", "GW04", "GW05"]
 
 NPCI_HEADERS = [
-    "npci_ref", "txn_ts", "amount_inr", "status",
-    "payer_psp", "payee_psp", "merchant_id", "mcc", "gateway_id",
+    "npci_ref",
+    "txn_ts",
+    "amount_inr",
+    "status",
+    "payer_psp",
+    "payee_psp",
+    "merchant_id",
+    "mcc",
+    "gateway_id",
 ]
 LEDGER_HEADERS = [
-    "ledger_id", "npci_ref", "txn_ts", "amount_inr",
-    "direction", "account_id", "status", "posting_ts",
+    "ledger_id",
+    "npci_ref",
+    "txn_ts",
+    "amount_inr",
+    "direction",
+    "account_id",
+    "status",
+    "posting_ts",
 ]
 MERCHANT_HEADERS = [
-    "merchant_txn_id", "npci_ref", "txn_ts", "amount_inr",
-    "merchant_id", "gateway_id", "status",
+    "merchant_txn_id",
+    "npci_ref",
+    "txn_ts",
+    "amount_inr",
+    "merchant_id",
+    "gateway_id",
+    "status",
 ]
 ANSWER_KEY_HEADERS = ["break_id", "npci_ref", "break_type", "expected_action"]
 
@@ -65,9 +83,7 @@ def _make_npci_ref(idx: int, iso_date: str) -> str:
     return f"UPI{d}{idx:08d}"
 
 
-def _generate_base_transactions(
-    rng: random.Random, n: int, iso_date: str
-) -> list[Txn]:
+def _generate_base_transactions(rng: random.Random, n: int, iso_date: str) -> list[Txn]:
     """Generate n good transactions for the given date."""
     print(f"Generating {n:,} base transactions...")
     base_dt = datetime.strptime(iso_date, "%Y-%m-%d")
@@ -102,16 +118,34 @@ def _generate_base_transactions(
         merchant_ts = txn_ts + timedelta(seconds=rng.randint(0, 8))
 
         t.npci_row = [
-            t.npci_ref, _ts_str(txn_ts), f"{amount:.2f}", "SUCCESS",
-            t.payer_psp, t.payee_psp, merchant_id, t.mcc, gateway_id,
+            t.npci_ref,
+            _ts_str(txn_ts),
+            f"{amount:.2f}",
+            "SUCCESS",
+            t.payer_psp,
+            t.payee_psp,
+            merchant_id,
+            t.mcc,
+            gateway_id,
         ]
         t.ledger_row = [
-            t.ledger_id, t.npci_ref, _ts_str(ledger_ts), f"{amount:.2f}",
-            "CREDIT", t.account_id, "POSTED", _ts_str(t.posting_ts),
+            t.ledger_id,
+            t.npci_ref,
+            _ts_str(ledger_ts),
+            f"{amount:.2f}",
+            "CREDIT",
+            t.account_id,
+            "POSTED",
+            _ts_str(t.posting_ts),
         ]
         t.merchant_row = [
-            t.merchant_txn_id, t.npci_ref, _ts_str(merchant_ts), f"{amount:.2f}",
-            merchant_id, gateway_id, "SUCCESS",
+            t.merchant_txn_id,
+            t.npci_ref,
+            _ts_str(merchant_ts),
+            f"{amount:.2f}",
+            merchant_id,
+            gateway_id,
+            "SUCCESS",
         ]
         txns.append(t)
 
@@ -238,8 +272,15 @@ def _plant_breaks(
         batch_npci_ref = f"BATCH{iso_date.replace('-', '')}{batched:06d}"
         first = txns[batch_idxs[0]]
         batch_npci_row = [
-            batch_npci_ref, first.npci_row[1], f"{total_amount:.2f}", "SUCCESS",
-            first.payer_psp, first.payee_psp, shared_mid, first.mcc, first.gateway_id,
+            batch_npci_ref,
+            first.npci_row[1],
+            f"{total_amount:.2f}",
+            "SUCCESS",
+            first.payer_psp,
+            first.payee_psp,
+            shared_mid,
+            first.mcc,
+            first.gateway_id,
         ]
 
         for bi in batch_idxs:

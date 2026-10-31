@@ -23,13 +23,13 @@ def _connect(env: dict[str, str | None]) -> pyexasol.ExaConnection:
 # "matched" = correct if the npci_ref IS in matches (engine reconciled it).
 # "broken"  = correct if the npci_ref IS in breaks (engine flagged it).
 CORRECT_IF: dict[str, str] = {
-    "timing_skew": "matched",        # timestamp shift; engine should still match it
-    "duplicate_ledger": "broken",     # extra ledger row should be flagged
-    "amount_mismatch": "broken",      # merchant amount differs; should be a break
-    "missing_settlement": "broken",   # NPCI row deleted; orphan should be flagged
-    "failed_but_debited": "broken",   # NPCI FAILED but ledger DEBIT; should be flagged
+    "timing_skew": "matched",  # timestamp shift; engine should still match it
+    "duplicate_ledger": "broken",  # extra ledger row should be flagged
+    "amount_mismatch": "broken",  # merchant amount differs; should be a break
+    "missing_settlement": "broken",  # NPCI row deleted; orphan should be flagged
+    "failed_but_debited": "broken",  # NPCI FAILED but ledger DEBIT; should be flagged
     "reversal_not_posted": "broken",  # NPCI REVERSED but ledger POSTED; should be flagged
-    "many_to_one_batch": "matched",   # batch should be matched via many-to-one stage
+    "many_to_one_batch": "matched",  # batch should be matched via many-to-one stage
 }
 
 
@@ -53,9 +53,7 @@ def score(run_id: str, env_path: Path | None = None) -> dict:
 
     # Get matched npci_refs
     matched_refs: set[str] = set()
-    for row in conn.execute(
-        f"SELECT npci_ref FROM matches WHERE run_id = '{run_id}'"
-    ).fetchall():
+    for row in conn.execute(f"SELECT npci_ref FROM matches WHERE run_id = '{run_id}'").fetchall():
         matched_refs.add(row[0])
 
     results_by_type: dict[str, dict] = {}
@@ -92,9 +90,7 @@ def score(run_id: str, env_path: Path | None = None) -> dict:
     total_matched = conn.execute(
         f"SELECT COUNT(*) FROM matches WHERE run_id = '{run_id}'"
     ).fetchval()
-    total_breaks = conn.execute(
-        f"SELECT COUNT(*) FROM breaks WHERE run_id = '{run_id}'"
-    ).fetchval()
+    total_breaks = conn.execute(f"SELECT COUNT(*) FROM breaks WHERE run_id = '{run_id}'").fetchval()
     total_npci = conn.execute("SELECT COUNT(*) FROM npci_settlement").fetchval()
     auto_match_pct = int(total_matched) / max(int(total_npci), 1) * 100
 
