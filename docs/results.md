@@ -6,11 +6,14 @@ All figures from a single run on a 2024 MacBook (Exasol Personal 2026.2.0-nano.3
 
 | Metric | Value |
 |--------|-------|
-| Rows per source | 1,000,000 |
+| Base transactions | 1,000,000 |
+| Rows loaded (NPCI / ledger / merchant) | 989,666 / 1,004,000 / 994,000 |
 | Auto-match rate | 99.1% |
 | Total matched | 980,583 |
 | Total breaks | 31,417 |
 | Total wall time | 6.65 s |
+
+A rerun on 31 Oct 2026 (run `R-2026-10-27-dee303`) reproduced every row count and accuracy figure exactly. Wall time was 7.71 s; timings vary by a second or so between runs on this VM.
 
 ## Stage Timings
 
