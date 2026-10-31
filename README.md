@@ -4,6 +4,8 @@ Governed UPI reconciliation on Exasol Personal.
 
 **ExaThon India 2026 · Money, Risk & Regulation**
 
+**Demo:** [Watch the 3-minute demo](https://drive.google.com/drive/folders/1N4V5nvlyClL3JZKy7FO-YJ1vm75NbuJg?usp=sharing)
+
 A payments-operations analyst at a mid-size bank cannot close the day's UPI reconciliation. The NPCI settlement file, the core-banking ledger, and the merchant records disagree on thousands of transactions, and she traces each one by hand across spreadsheets. CloseDesk does that match inside Exasol and starts her day with a short list: each exception has a cause, the rupees at risk, and a proposed fix she can approve or reject.
 
 Every proposal is gated. A human decides. The decision is written to an audit log in Exasol. CloseDesk does not post entries to a core-banking system.
