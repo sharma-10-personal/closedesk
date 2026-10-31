@@ -4,7 +4,18 @@ Governed UPI reconciliation on Exasol Personal.
 
 **ExaThon India 2026 · Money, Risk & Regulation**
 
-**Demo:** [Watch the 3-minute demo](https://drive.google.com/drive/folders/1N4V5nvlyClL3JZKy7FO-YJ1vm75NbuJg?usp=sharing)
+## Submission
+
+| | |
+|---|---|
+| Problem | This page and [docs/problem-statement.md](docs/problem-statement.md) |
+| Architecture | [docs/architecture.md](docs/architecture.md) |
+| Run and deploy | [docs/run-guide.md](docs/run-guide.md) |
+| Data, APIs, tools | [docs/data-sources.md](docs/data-sources.md) |
+| Measured results | [docs/results.md](docs/results.md) |
+| Pitch deck | [docs/pitch/closedesk-pitch.pdf](docs/pitch/closedesk-pitch.pdf) |
+| Demo video | [Sharma Exasol demo](https://drive.google.com/drive/folders/1N4V5nvlyClL3JZKy7FO-YJ1vm75NbuJg?usp=sharing) |
+| Licence | [MIT](LICENSE) |
 
 A payments-operations analyst at a mid-size bank cannot close the day's UPI reconciliation. The NPCI settlement file, the core-banking ledger, and the merchant records disagree on thousands of transactions, and she traces each one by hand across spreadsheets. CloseDesk does that match inside Exasol and starts her day with a short list: each exception has a cause, the rupees at risk, and a proposed fix she can approve or reject.
 
@@ -113,18 +124,5 @@ closedesk/
 ├── docs/              problem, architecture, results, run guide, pitch
 └── data/              generated files, gitignored
 ```
-
-## Submission
-
-| | |
-|---|---|
-| Problem | This page and [docs/problem-statement.md](docs/problem-statement.md) |
-| Architecture | [docs/architecture.md](docs/architecture.md) |
-| Run and deploy | [docs/run-guide.md](docs/run-guide.md) |
-| Data, APIs, tools | [docs/data-sources.md](docs/data-sources.md) |
-| Measured results | [docs/results.md](docs/results.md) |
-| Pitch deck | [docs/pitch/closedesk-pitch.pdf](docs/pitch/closedesk-pitch.pdf) |
-| Demo video | [Sharma Exasol demo](https://drive.google.com/drive/folders/1N4V5nvlyClL3JZKy7FO-YJ1vm75NbuJg?usp=sharing) |
-| Licence | [MIT](LICENSE) |
 
 Original work for ExaThon India 2026.
