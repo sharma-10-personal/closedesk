@@ -74,7 +74,7 @@
 <section class="slide" style="justify-content:center;">
   <div class="kicker">ExaThon India 2026</div>
   <h1>CloseDesk</h1>
-  <div class="sub">Governed UPI reconciliation on Exasol Personal.</div>
+  <div class="sub">The governed Exasol agent for UPI reconciliation.</div>
   <div class="grid g2" style="margin-top:48px; max-width:920px;">
     <div class="card"><h3>Name</h3><p>Sharma S S</p></div>
     <div class="card"><h3>Team</h3><p>Late Orbit</p></div>
@@ -132,7 +132,23 @@
   <div class="footer"><span>CloseDesk</span><span>4</span></div>
 </section>
 
-<!-- 5. Results -->
+<!-- 5. Why Exasol -->
+<section class="slide">
+  <div class="kicker">Effective use of Exasol Personal</div>
+  <h2>“The sovereign analytics database, built for the agentic era.” CloseDesk uses all three parts.</h2>
+  <div class="gate">
+    <div class="card" style="border-top-color:#3B82F6;"><h3 class="blue">Sovereign by default</h3><p>NPCI, ledger and merchant files, matches, proposals, decisions and the audit log all live in one local <span class="mono">CLOSEDESK</span> schema. No cloud account, no API key, nothing sent out.</p></div>
+    <div class="card" style="border-top-color:#10B981;"><h3 class="green">In-memory SQL</h3><p>Nine plain SQL stages do the whole match, classification, grouping and ranking. No Python loop over transactions. 6.65s for ~3M rows across three sources on a 2-vCPU local VM.</p></div>
+    <div class="card" style="border-top-color:#F59E0B;"><h3 class="amber">Agents on your own data</h3><p>The agent reads <span class="mono">breaks</span> from Exasol and writes <span class="mono">proposals</span> back. The gate decision, the human approval and <span class="mono">audit_log</span> are Exasol rows too.</p></div>
+  </div>
+  <ul>
+    <li>Python only validates files, bulk-loads them with <span class="mono">pyexasol</span>, and serves the UI. Every screen queries live Exasol state.</li>
+    <li>Not used yet: UDFs and S3/Iceberg connectors. Next: run the same SQL on a multi-node BYOC cluster at 10M+ rows.</li>
+  </ul>
+  <div class="footer"><span>Quote: exasol.com/personal</span><span>5</span></div>
+</section>
+
+<!-- 6. Results -->
 <section class="slide">
   <div class="kicker">Measured on a 1,000,000-transaction day (~1M rows per source)</div>
   <h2>Fast enough to run while the answer still matters</h2>
@@ -149,10 +165,10 @@
     <tr><td>Many-to-one batch</td><td class="num">2,667</td><td class="num">0.68s</td></tr>
     <tr><td>Break detection (4 stages)</td><td class="num">31,417</td><td class="num">1.35s</td></tr>
   </table>
-  <div class="footer"><span>Exasol Personal 2026.2.0 · local VM, 2 vCPU · MacBook</span><span>5</span></div>
+  <div class="footer"><span>Exasol Personal 2026.2.0 · local VM, 2 vCPU · MacBook</span><span>6</span></div>
 </section>
 
-<!-- 6. Root causes -->
+<!-- 7. Root causes -->
 <section class="slide">
   <div class="kicker">From rows to causes</div>
   <h2>31,417 breaks. 31 root causes.</h2>
@@ -166,10 +182,10 @@
     <div class="b" style="background:#F59E0B;"><div class="v">31</div><div class="l">Root causes</div></div>
   </div>
   <p style="margin-top:40px;">Each cause is a gateway × break type group, sized by rupees at risk. The analyst fixes the cause once — a gateway clock, a duplicate posting job — instead of chasing thousands of rows.</p>
-  <div class="footer"><span>CloseDesk</span><span>6</span></div>
+  <div class="footer"><span>CloseDesk</span><span>7</span></div>
 </section>
 
-<!-- 7. Governance -->
+<!-- 8. Governance -->
 <section class="slide">
   <div class="kicker">Governed agent</div>
   <h2>The agent proposes. A human decides. Exasol remembers.</h2>
@@ -183,10 +199,10 @@
     <li>Every proposal, approval and rejection is written to <span class="mono">audit_log</span> with before and after state.</li>
     <li>Explanations come from templates and SQL labels, so it runs with no LLM and no API key.</li>
   </ul>
-  <div class="footer"><span>CloseDesk</span><span>7</span></div>
+  <div class="footer"><span>CloseDesk</span><span>8</span></div>
 </section>
 
-<!-- 8. Demo -->
+<!-- 9. Demo -->
 <section class="slide">
   <div class="kicker">The product</div>
   <h2>Five screens, all reading live Exasol state</h2>
@@ -198,10 +214,10 @@
     <div class="card"><h3>Analytics</h3><p>Funnel, break types, root causes, accuracy against the answer key, and the full audit trail.</p></div>
     <div class="card" style="background:#0F172A;border-color:#1E3A8A;"><h3 class="blue">Try it</h3><p class="mono" style="font-size:16px;">make setup<br>make full<br>make demo</p></div>
   </div>
-  <div class="footer"><span>CloseDesk</span><span>8</span></div>
+  <div class="footer"><span>CloseDesk</span><span>9</span></div>
 </section>
 
-<!-- 9. Honest limits -->
+<!-- 10. Honest limits -->
 <section class="slide">
   <div class="kicker">What it does not do yet</div>
   <h2>Honest limits and next steps</h2>
@@ -219,16 +235,16 @@
       Generate and match 10M+ rows entirely in Exasol SQL.
     </p></div>
   </div>
-  <div class="footer"><span>CloseDesk</span><span>9</span></div>
+  <div class="footer"><span>CloseDesk</span><span>10</span></div>
 </section>
 
-<!-- 10. Close -->
+<!-- 11. Close -->
 <section class="slide" style="justify-content:center;">
   <div class="kicker">CloseDesk</div>
   <h2 style="font-size:52px;">Close the day before lunch, not after midnight.</h2>
   <div class="sub">Open source under MIT. Exasol Personal, Python, Streamlit. All transactions synthetic.</div>
   <p class="mono" style="margin-top:40px;font-size:24px;color:#3B82F6;">github.com/sharma-10-personal/closedesk</p>
-  <div class="footer"><span>ExaThon India 2026 · Sharma S S</span><span>10</span></div>
+  <div class="footer"><span>ExaThon India 2026 · Sharma S S</span><span>11</span></div>
 </section>
 
 </body>

@@ -122,7 +122,7 @@ closedesk/
 | Data, APIs, tools | [docs/data-sources.md](docs/data-sources.md) |
 | Measured results | [docs/results.md](docs/results.md) |
 | Pitch deck | [docs/pitch/closedesk-pitch.pdf](docs/pitch/closedesk-pitch.pdf) |
-| Demo video | Not recorded yet |
+| Demo video | [Sharma Exasol demo](https://drive.google.com/drive/folders/1N4V5nvlyClL3JZKy7FO-YJ1vm75NbuJg?usp=sharing) |
 | Licence | [MIT](LICENSE) |
 
 Original work for ExaThon India 2026.
