@@ -1,116 +1,128 @@
 # CloseDesk
 
-**ExaThon India 2026 · Track: Money, Risk & Regulation**
+Governed UPI reconciliation on Exasol Personal.
 
-A payments-operations analyst at a mid-size bank can't close the day's UPI reconciliation, because the settlement file, the core-banking ledger and the merchant records disagree on thousands of transactions, and she traces each one by hand across spreadsheets. If this worked, she'd start the day with a short list of true exceptions, each with a cause, the rupees at risk and a proposed fix she can approve in one click.
+**ExaThon India 2026 · Money, Risk & Regulation**
 
-CloseDesk matches those three lists in **Exasol Personal**, groups leftovers by root cause, ranks them by rupees at risk, and lets an agent *propose* a fix. A human must approve or reject every proposal, and every decision is written to an audit log in Exasol.
+A payments-operations analyst at a mid-size bank cannot close the day's UPI reconciliation. The NPCI settlement file, the core-banking ledger, and the merchant records disagree on thousands of transactions, and she traces each one by hand across spreadsheets. CloseDesk does that match inside Exasol and starts her day with a short list: each exception has a cause, the rupees at risk, and a proposed fix she can approve or reject.
 
-You can also upload your own three CSV files on the Pipeline screen and run the same matching on them.
+Every proposal is gated. A human decides. The decision is written to an audit log in Exasol. CloseDesk does not post entries to a core-banking system.
 
-> All payment rows in this project are **synthetic**. There is no real UPI, customer, or employer data. See [docs/data-sources.md](docs/data-sources.md).
+> All payment rows are **synthetic**. There is no real UPI, customer, or employer data. Sources and licences: [docs/data-sources.md](docs/data-sources.md).
 
-## Results (measured on 1M transactions)
+## At a glance
 
-| Metric | Value |
-|--------|-------|
-| Auto-match rate | **99.1%** |
-| Precision | **100.00%** |
-| Recall | **99.79%** |
-| F1 score | **99.90%** |
-| Wall time (9 SQL stages, 1M rows) | **6.65 seconds** |
-| Break types detected | 7 / 7 (99–100% each) |
-| Root-cause groups | 31 |
-| Proposals generated | 31,417 |
+Measured on a day of 1,000,000 synthetic transactions. Same match counts on both runs. Details in [docs/results.md](docs/results.md).
 
-Full details: [docs/results.md](docs/results.md)
+| | |
+|---|---|
+| Auto-matched | **99.1%** · 980,583 of 989,666 NPCI rows |
+| Accuracy vs planted answer key | **100%** precision · **99.79%** recall · **99.90%** F1 |
+| What is left | **31,417** breaks, collapsed into **31** root causes |
+| Time inside Exasol | **6.65 s** and **7.71 s** on two runs of the same day |
+| Break types | **7 / 7** detected. Six at 100%, timing skew at 99% |
 
-## What it does
+```mermaid
+flowchart LR
+  A[NPCI settlement] --> M[Match in Exasol]
+  B[Bank ledger] --> M
+  C[Merchant records] --> M
+  M --> D[31,417 breaks]
+  D --> E[31 root causes]
+  E --> F[Agent proposes]
+  F --> G[Human decides]
+  G --> H[Audit log]
+```
 
-1. **Generate** — Creates 1M synthetic NPCI settlement, bank ledger, and merchant records with 7 planted break types and an answer key.
-2. **Load** — Bulk loads all CSVs into Exasol Personal via `pyexasol.import_from_iterable()`.
-3. **Match** — 3-stage SQL matching: exact → tolerance → many-to-one batch.
-4. **Classify** — Identifies residual breaks: missing settlement, duplicate ledger, amount mismatch, failed-but-debited, reversal not posted, orphans.
-5. **Root causes** — Groups breaks by gateway × break type, ranks by ₹ at risk.
-6. **Agent** — Proposes a fix for each break. Policy gate allows, escalates, or blocks based on ₹ thresholds. Templates produce explanations (no LLM API key needed).
-7. **Approve** — Human reviews each proposal in the Streamlit dashboard. Approve or reject with one click. The decision is recorded; CloseDesk does not post entries to a core-banking system.
-8. **Audit** — Every action is recorded in the audit log with before/after state.
+## What the pipeline does
+
+1. **Generate or upload.** Build a synthetic day, or drop in three CSVs: NPCI settlement, bank ledger, merchant records. Uploads are checked for headers, column counts, amounts, and duplicate IDs before they touch Exasol.
+2. **Load.** Bulk import with `pyexasol.import_from_iterable`.
+3. **Match.** Three SQL stages, in order: exact reference, amount, and day; then a tolerance window; then many-to-one batch settlements.
+4. **Classify.** Name what is left: missing settlement, duplicate ledger, amount mismatch, failed-but-debited, reversal not posted, status mismatch, orphans.
+5. **Group.** Root causes are gateway × break type, ranked by rupees at risk and deadline.
+6. **Propose.** The agent may only emit actions on an allow-list. A policy gate marks each proposal allow, escalate, or block. Explanations are templates, so no LLM key is required.
+7. **Decide.** Approve and reject are recorded with the actor and the before/after state. A proposal the gate marked block cannot be approved.
+
+## The dashboard
+
+`make demo` opens five screens. All of them read live Exasol state.
+
+| Screen | What you do there |
+|---|---|
+| Pipeline | Generate a day or upload three files, and watch each SQL stage finish |
+| Investigate | Open one NPCI reference and see all three systems, the break, and the proposal |
+| Inject & Detect | Plant a new break into the live data and watch it get caught |
+| Exceptions | Work the queue, ranked by ₹ at risk. Approve or reject |
+| Analytics | Funnel, break types, root causes, answer-key score, and the audit trail |
+
+Sample files for the upload screen are in `samples/` and can be downloaded from the Pipeline screen. An upload has no answer key, so accuracy scoring is offered only for a generated day.
 
 ## Quick start
 
-Full steps: [docs/run-guide.md](docs/run-guide.md).
+Full steps, including memory settings for the local VM: [docs/run-guide.md](docs/run-guide.md).
 
 ```bash
-# 1. Exasol Personal local (Apple Silicon Mac, 8 GB+ RAM)
+# Exasol Personal, Apple Silicon, 8 GB RAM or more
 curl https://downloads.exasol.com/exasol-personal/installer.sh | sh
 export PATH="$HOME/.local/bin:$PATH"
 exasol install local
-exasol connect   # confirm SELECT 1;
+exasol connect
 
-# 2. This project
+# This repo
 git clone https://github.com/sharma-10-personal/closedesk.git
 cd closedesk
-cp .env.example .env          # set EXA_PASSWORD from secrets.json
-make setup                    # installs uv + Python deps
-
-# 3. Full pipeline (generate → schema → load → match → propose → eval)
-make full
-
-# 4. Dashboard
-make demo
+cp .env.example .env       # EXA_PASSWORD from ~/.exasol/personal/deployments/default/secrets.json
+make setup
+make full                  # generate, load, match, propose, score. About 10 minutes for 1M rows
+make demo                  # http://localhost:8501
 ```
 
-## Repository layout
+`make full` replaces whatever day is currently loaded. Generating the million-row files is the slow part. The nine SQL stages after the load take under eight seconds.
+
+## Where Exasol does the work
+
+Matching, classification, root-cause grouping, priority, proposals, decisions, and the audit log all live in the `CLOSEDESK` schema. Python generates or validates files, loads them, and serves the UI. There is no Python loop over transactions and no Python UDF.
+
+| Stage | What the SQL does | Recorded time |
+|---|---|---|
+| Exact match | Join on reference, amount, and calendar day | 3.92 s · 977,846 rows |
+| Tolerance | Amount and time window on what exact missed | 0.57 s · 70 rows |
+| Many-to-one | Merchant rows that sum to one NPCI amount | 0.68 s · 2,667 rows |
+| Breaks, causes, priority | Four detectors, then group and rank | 1.48 s · 31,417 breaks, 31 causes |
+
+The 83 misses are timing-skew rows whose shift crosses midnight, so the calendar-day join does not see them. That limit is written up in [docs/results.md](docs/results.md).
+
+## Repository
 
 ```
 closedesk/
 ├── closedesk/
-│   ├── generator/   # Synthetic data with 7 planted break types
-│   ├── loader/      # Bulk CSV → Exasol via pyexasol
-│   ├── engine/      # Runs SQL stages, measures timing
-│   ├── agent/       # Governed proposals + policy gate
-│   ├── eval/        # Accuracy scoring vs answer key
-│   └── app/         # Streamlit investigator dashboard
-├── sql/             # All matching logic runs INSIDE Exasol
-│   ├── 00_schema.sql
-│   ├── 10_match_exact.sql
-│   ├── 11_match_tolerance.sql
-│   ├── 12_match_many_to_one.sql
-│   ├── 20_classify_breaks.sql
-│   ├── 21_detect_orphans.sql
-│   ├── 22_detect_duplicates.sql
-│   ├── 23_detect_status_mismatch.sql
-│   ├── 30_root_causes.sql
-│   ├── 40_priority_and_deadlines.sql
-│   └── 50_governance.sql
-├── config/          # policy.yaml + scenario.yaml
-├── samples/         # 10K-row CSVs for the upload screen
-├── tests/           # pytest suite (16 tests)
-├── docs/            # Problem statement, architecture, results
-└── data/            # Generated CSVs (gitignored)
+│   ├── generator/     synthetic day, 7 planted break types
+│   ├── loader/        CSV to Exasol
+│   ├── engine/        runs the SQL stages and records timings
+│   ├── agent/         allow-listed actions and the policy gate
+│   ├── eval/          precision, recall, F1 against the answer key
+│   └── app/           Streamlit dashboard
+├── sql/               the reconciliation, executed inside Exasol
+├── config/            policy.yaml, scenario.yaml
+├── samples/           10,000-row CSVs for the upload screen
+├── tests/             16 pytest tests
+├── docs/              problem, architecture, results, run guide, pitch
+└── data/              generated files, gitignored
 ```
 
-Core matching logic lives in `sql/` and runs **inside Exasol**. Python loads data, orchestrates stages, and serves the UI.
+## Submission
 
-## Exasol usage highlights
+| | |
+|---|---|
+| Problem | This page and [docs/problem-statement.md](docs/problem-statement.md) |
+| Architecture | [docs/architecture.md](docs/architecture.md) |
+| Run and deploy | [docs/run-guide.md](docs/run-guide.md) |
+| Data, APIs, tools | [docs/data-sources.md](docs/data-sources.md) |
+| Measured results | [docs/results.md](docs/results.md) |
+| Pitch deck | [docs/pitch/closedesk-pitch.pdf](docs/pitch/closedesk-pitch.pdf) |
+| Demo video | Not recorded yet |
+| Licence | [MIT](LICENSE) |
 
-- **All matching happens in SQL** inside Exasol — no Python-side loops for reconciliation
-- **3-stage matching** leverages Exasol's columnar engine: exact, tolerance (ABS + SECONDS_BETWEEN), many-to-one (GROUP BY + SUM)
-- **1M rows matched in 3.9s** for exact stage, full pipeline in 6.65s
-- **HASHTYPE_MD5** for deterministic root-cause grouping
-- **MERGE INTO** for efficient batch updates
-- **pyexasol.import_from_iterable()** for bulk loading (3.5s per million rows)
-
-## Licence
-
-[MIT](LICENSE). Original work for ExaThon India 2026.
-
-## Submission notes
-
-- Problem statement: this README and [docs/problem-statement.md](docs/problem-statement.md)
-- Architecture: [docs/architecture.md](docs/architecture.md)
-- Run / deploy: [docs/run-guide.md](docs/run-guide.md)
-- Data, APIs, tools: [docs/data-sources.md](docs/data-sources.md)
-- Measured results: [docs/results.md](docs/results.md)
-- Pitch deck: [docs/pitch/closedesk-pitch.pdf](docs/pitch/closedesk-pitch.pdf)
-- Demo video (≤ 3 min): link will go here
+Original work for ExaThon India 2026.
